@@ -95,7 +95,7 @@ button:disabled{opacity:.5;cursor:default}
     </div>
     <div class="hint" style="margin-top:10px">替换结果：</div>
     <div id="pvOut" class="previewOut">（等待预览）</div>
-    <div id="pvMarkers" style="margin-top:8px"></div>
+    <div id="pvMarkers" style="margin-top:8px;white-space:pre-line"></div>
   </div>
 </section>
 
@@ -473,9 +473,22 @@ $("btnPreview").onclick = async ()=>{
     const r = await api("/api/preview","POST",{text});
     $("pvOut").textContent = r.output || "（无输出）";
     const ms = r.markers || [];
-    $("pvMarkers").textContent = ms.length
+    let msg = ms.length
       ? "产生标记 " + ms.length + " 个：" + ms.map(m=>`⟦${m.id.slice(0,6)}…|${m.label}⟧`).join("  ")
       : "没有产生标记（检查规则/特殊值是否覆盖了示例内容，并确认已保存）";
+    const eff = r.effective || {};
+    const dets = (eff.detectors||[]).map(d =>
+      d.url + (d.enabled ? "" : "（已停用）"));
+    msg += "\n✳ 本次预览使用已保存配置：正则=" +
+      (eff.enable_regex ? "开（" + (eff.rules_count ?? 0) + " 条）" : "关") +
+      "；特殊值=" + (eff.custom_values_count ? eff.custom_values_count + " 条" : "无") +
+      "；检测模型=" + (dets.length ? dets.join("；") : "无");
+    if ((r.detector_errors||[]).length)
+      msg += "\n⚠ 检测模型调用失败（该检测器按空产出处理，正则不受影响）：" +
+        r.detector_errors.join("；");
+    if (Object.values(dirty).some(Boolean))
+      msg += "\n⚠ 界面有未保存的修改——预览只用已保存配置，请先到对应页签点「保存」。";
+    $("pvMarkers").textContent = msg;
   }catch(e){ $("pvOut").textContent = "预览失败：" + e.message; }
 };
 

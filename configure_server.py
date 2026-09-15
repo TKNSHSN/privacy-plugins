@@ -150,7 +150,22 @@ def validate_config_doc(doc):
 # 预览（干跑：临时目录拷贝映射表，绝不写真实映射）
 # ---------------------------------------------------------------------------
 
-def make_preview_engine():
+class _RecordingTransport:
+    """包装引擎默认 HTTP 传输，记录检测调用失败——预览结果里展示，避免 fail-open 静默吞掉。"""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.errors = []
+
+    def __call__(self, url, payload, timeout_s):
+        try:
+            return self._inner(url, payload, timeout_s)
+        except Exception as exc:
+            self.errors.append(f"{url} → {exc}")
+            raise
+
+
+def make_preview_engine(transport=None):
     tmp = tempfile.mkdtemp(prefix="privacy-preview-")
     for name in PLUGIN_FILES:
         src = os.path.join(DIR, name)
@@ -160,7 +175,7 @@ def make_preview_engine():
     if os.path.isfile(mappings):
         os.makedirs(os.path.join(tmp, "data"), exist_ok=True)
         shutil.copy(mappings, os.path.join(tmp, "data", "mappings.json"))
-    return tmp, engine.Engine(tmp)
+    return tmp, engine.Engine(tmp, transport=transport)
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +276,8 @@ class Handler(BaseHTTPRequestHandler):
                 text = (self._read_json_body() or {}).get("text", "")
                 if not isinstance(text, str) or not text:
                     raise ApiError("text 不能为空")
-                tmp, preview_engine = make_preview_engine()
+                rec = _RecordingTransport(engine._http_post_default)
+                tmp, preview_engine = make_preview_engine(rec)
                 try:
                     request = {"stage": "pre_request", "session_id": "preview",
                                "body": {"messages": [{"role": "user", "content": [
@@ -274,8 +290,24 @@ class Handler(BaseHTTPRequestHandler):
                          "label": (out[s:e].split("|")[2] if "|" in out[s:e] else "")}
                         for (s, e, mid) in engine.scan_markers(out)
                     ]
-                    self._send_json({"output": out, "changed": bool(response),
-                                     "markers": markers})
+                    cfg = preview_engine.config
+                    self._send_json({
+                        "output": out, "changed": bool(response),
+                        "markers": markers,
+                        "detector_errors": rec.errors,
+                        "effective": {
+                            "enable_regex": bool(cfg.get("enable_regex", True)),
+                            "enable_detectors": bool(cfg.get("enable_detectors", True)),
+                            "rules_count": len(preview_engine.rules),
+                            "custom_values_count": len(preview_engine.custom_values),
+                            "detectors": [
+                                {"url": d.get("url"), "enabled": d.get("enabled", True),
+                                 "timeout_ms": d.get("timeout_ms", 10000)}
+                                for d in (cfg.get("detectors") or [])
+                                if isinstance(d, dict)
+                            ],
+                        },
+                    })
                 finally:
                     shutil.rmtree(tmp, ignore_errors=True)
             elif self.path == "/api/test-detector":
