@@ -8,6 +8,8 @@
 本仓库是 privacy-replace 插件的独立源码仓库。插件协议遵循 cc-switch 插件系统契约
 (`plugin-system-contract.md` §2.5,存于 cc-switch 仓库 `docs/dev/`)的 persistent 用户插件模式。
 
+全程对用户透明、对模型不可还原真实值但可正常读写。
+
 ## 目录结构
 
 ```
@@ -39,6 +41,8 @@ privacy-replace/
 cc-switch → 设置 → 高级 → 插件 → **导入插件**,选择本目录(即含 `plugin.json` 的文件夹);
 或手动把整个文件夹拷贝到 `<配置目录>/plugins/` 后点「重新加载」。
 同名目录已存在时导入会报错,改个目录名重试即可。注册后插件 id 显示为 `user:privacy-replace`。
+
+![image-20260915234321610](./image/image-20260915234321610.png)
 
 ### 清单(plugin.json)
 
@@ -262,6 +266,14 @@ HTTP 接口(供脚本化):`GET /api/health`、`GET /api/state`、`POST /api/save
 (三配置文件,服务端校验,坏正则 400)、`POST /api/validate-regex`、`POST /api/preview`、
 `POST /api/test-detector`。
 
+![image-20260915234800531](./image/image-20260915234800531.png)
+
+
+
+![image-20260915234916558](./image/image-20260915234916558.png)
+
+
+
 ### 中文菜单 CLI
 
 ```
@@ -317,13 +329,7 @@ T:\note\agent_work\privacy_replace\opf_env\Scripts\python.exe opf_detector_serve
 - 标记本身不含原文,泄露标记文本不会直接泄露敏感内容;
 - GUI 与参考检测服务只绑定 127.0.0.1;GUI 对映射表只读,真实映射只由运行中的插件进程写入。
 
-## 常见问题
 
-- **面板提示插件加载失败 / 无 python**:把 `plugin.json` 的 `command` 改为解释器完整路径;
-- **改了 engine.py 不生效**:代码与清单的改动需面板「重新加载」(三个 JSON 配置才是热重载);
-- **换机迁移**:整目录拷贝(含 `data/`),映射与 id 随行,替换/还原跨机一致;
-- **从旧版核心内置插件迁移**:把旧 `~/.cc-switch/privacy-rules.json` 内容整份粘进本目录
-  `rules.json` 即可,格式一致。
 
 ## 用其他语言重新实现
 
