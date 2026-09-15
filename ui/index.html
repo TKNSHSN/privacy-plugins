@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>隐私替换插件 · 配置界面</title>
+<style>
+:root{
+  --bg:#f5f6f8; --card:#fff; --ink:#1c2430; --muted:#667085;
+  --line:#e3e6eb; --accent:#2563eb; --accent-soft:#eef3ff;
+  --ok:#16a34a; --err:#dc2626; --warn:#d97706;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#14171c; --card:#1d2129; --ink:#e6e9ef; --muted:#9aa4b2;
+         --line:#2c323c; --accent:#5b8dff; --accent-soft:#1c2740; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif}
+header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:14px 22px;background:var(--card);border-bottom:1px solid var(--line)}
+h1{font-size:17px;margin:0}
+.stats{color:var(--muted);font-size:12.5px;flex:1}
+nav{display:flex;gap:6px;padding:10px 22px 0;flex-wrap:wrap}
+nav button{border:1px solid var(--line);background:var(--card);color:var(--ink);
+  padding:7px 16px;border-radius:8px;cursor:pointer;font-size:13.5px}
+nav button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+main{max-width:1150px;margin:14px auto 60px;padding:0 22px}
+section{display:none}
+section.active{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+  padding:14px 16px;margin-bottom:14px}
+.hint{color:var(--muted);font-size:12.5px;margin:4px 0 10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{color:var(--muted);text-align:left;font-weight:600;padding:6px 8px;
+  border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+input[type=text],input[type=number],select,textarea{
+  width:100%;border:1px solid var(--line);border-radius:6px;padding:5px 8px;
+  background:var(--bg);color:var(--ink);font:inherit}
+textarea{font-family:Consolas,Menlo,monospace;font-size:12.5px;resize:vertical}
+button.act{border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px;white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.danger{color:var(--err)}
+button:disabled{opacity:.5;cursor:default}
+.switch{position:relative;display:inline-block;width:36px;height:20px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch span{position:absolute;inset:0;background:#c4cad3;border-radius:20px;
+  transition:.15s;cursor:pointer}
+.switch span:before{content:"";position:absolute;width:14px;height:14px;
+  left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s}
+.switch input:checked + span{background:var(--accent)}
+.switch input:checked + span:before{transform:translateX(16px)}
+.badge{display:inline-block;background:var(--accent-soft);color:var(--accent);
+  border-radius:5px;padding:1px 8px;font-size:12px;margin-right:4px}
+.mono{font-family:Consolas,Menlo,monospace;font-size:12.5px;word-break:break-all}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.row label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+#toast{position:fixed;right:20px;bottom:20px;z-index:9;display:flex;
+  flex-direction:column;gap:8px}
+.toastItem{padding:9px 16px;border-radius:8px;color:#fff;font-size:13px;
+  box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.ok{background:var(--ok)} .err{background:var(--err)}
+.previewOut{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);
+  border-radius:8px;padding:10px;min-height:60px;font-family:Consolas,Menlo,monospace;font-size:12.5px}
+.testResult{font-family:Consolas,Menlo,monospace;font-size:12px;white-space:pre-wrap;
+  color:var(--muted);margin-top:6px;word-break:break-all}
+.kv{color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>隐私替换插件 · 配置界面</h1>
+  <div id="stats" class="stats">加载中…</div>
+  <button class="act" id="btnRefresh">↻ 刷新</button>
+</header>
+<nav id="tabs">
+  <button data-tab="preview" class="active">实时预览</button>
+  <button data-tab="rules">正则规则 <span id="dRules"></span></button>
+  <button data-tab="custom">特殊值 <span id="dCustom"></span></button>
+  <button data-tab="detectors">检测模型</button>
+  <button data-tab="options">散列与选项</button>
+  <button data-tab="mappings">映射表</button>
+</nav>
+<main>
+
+<section id="tab-preview" class="active">
+  <div class="card">
+    <div class="hint">输入一段示例文本，插件引擎会<strong>干跑</strong>一次真实替换（临时副本，不写入映射表）。预览使用<strong>已保存</strong>的配置——改完先点各页的“保存”。</div>
+    <textarea id="pvIn" rows="4" placeholder="例：把配置部署到 api_key = &quot;abcd1234efgh5678&quot;，联系 alice@example.com"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="act primary" id="btnPreview">▶ 预览替换</button>
+      <span class="kv">替换发生时输出区会出现 ⟦PII|…⟧ 标记；映射表不新增条目。</span>
+    </div>
+    <div class="hint" style="margin-top:10px">替换结果：</div>
+    <div id="pvOut" class="previewOut">（等待预览）</div>
+    <div id="pvMarkers" style="margin-top:8px"></div>
+  </div>
+</section>
+
+<section id="tab-rules">
+  <div class="card">
+    <div class="row">
+      <label class="switch"><input type="checkbox" id="rulesEnabled"><span></span></label>
+      <strong>正则规则引擎总开关</strong>
+      <span class="kv">关闭后仅自定义特殊值与检测模型参与</span>
+      <span style="flex:1"></span>
+      <button class="act" id="btnAddRule">＋ 添加规则</button>
+      <button class="act primary" id="btnSaveRules">保存正则</button>
+    </div>
+    <div class="hint">pattern 用 Python re 语法；<b>capture</b> 填组号或组名 = 只替换该组（如 kv 密钥只遮值保键名）；优先级数字越小越优先。</div>
+    <table><thead><tr>
+      <th>启用</th><th>名称</th><th>类型</th><th style="width:34%">表达式 / 字面量</th>
+      <th>capture</th><th>标记 label</th><th>描述</th><th>优先级</th><th></th>
+    </tr></thead><tbody id="rulesBody"></tbody></table>
+  </div>
+</section>
+
+<section id="tab-custom">
+  <div class="card">
+    <div class="row">
+      <label class="switch"><input type="checkbox" id="customEnabled"><span></span></label>
+      <strong>自定义特殊值总开关</strong>
+      <span class="kv">★ 你预先知道不会被规则命中的账号/密码/内网域名，登记在这里直接走标记映射；登记瞬间即注册映射（id 稳定）</span>
+      <span style="flex:1"></span>
+      <button class="act" id="btnAddCustom">＋ 登记特殊值</button>
+      <button class="act primary" id="btnSaveCustom">保存特殊值</button>
+    </div>
+    <table><thead><tr>
+      <th>启用</th><th style="width:34%">值（逐字面完整匹配）</th>
+      <th>标记 label</th><th>描述</th><th>优先级</th><th></th>
+    </tr></thead><tbody id="customBody"></tbody></table>
+  </div>
+</section>
+
+<section id="tab-detectors">
+  <div class="card">
+    <div class="row">
+      <label class="switch"><input type="checkbox" id="detectorsEnabled"><span></span></label>
+      <strong>检测模型总开关（本地隐私标记模型）</strong>
+      <span class="kv">协议：POST {"texts":[…]} → {"spans":[[…]]}，start/end 为 UTF-8 字节偏移。参考服务：插件目录 <span class="mono">python detector_server.py</span>（127.0.0.1:8765/detect）</span>
+      <span style="flex:1"></span>
+      <button class="act" id="btnAddDetector">＋ 添加检测服务</button>
+      <button class="act primary" id="btnSaveDetectors">保存检测模型</button>
+    </div>
+    <table><thead><tr>
+      <th>启用</th><th style="width:26%">URL</th><th>超时ms</th><th>max_chars</th>
+      <th>优先级</th><th>label</th><th>desc</th><th>测试</th><th></th>
+    </tr></thead><tbody id="detBody"></tbody></table>
+    <div class="hint">“测试”会向该 URL 发一条真实批量请求（示例文本），返回 spans 即模型链路打通。保存后才使用最新配置。</div>
+  </div>
+</section>
+
+<section id="tab-options">
+  <div class="card">
+    <strong>引擎选项</strong>
+    <div class="row" style="margin-top:10px">
+      <label class="switch"><input type="checkbox" id="optRegex"><span></span></label>
+      <span>启用正则引擎</span>
+      <label class="switch" style="margin-left:18px"><input type="checkbox" id="optNote"><span></span></label>
+      <span>注入标记协议说明（prompt_note）</span>
+    </div>
+    <div class="row">
+      <label class="f">散列算法
+        <select id="hashAlgo">
+          <option value="blake2b">blake2b（缺省）</option>
+          <option value="sha256">sha256</option>
+          <option value="sha512">sha512</option>
+          <option value="sha1">sha1</option>
+        </select>
+      </label>
+      <label class="f">计算方式
+        <select id="hashMode">
+          <option value="adaptive">adaptive（长度随原文）</option>
+          <option value="fixed">fixed（固定长度，防长度泄漏）</option>
+        </select>
+      </label>
+      <label class="f">fixed 基础长度（4-64）<input type="number" id="hashLen" min="4" max="64"></label>
+      <label class="f">缓存条数<input type="number" id="cacheCap" min="16"></label>
+    </div>
+    <div class="hint">散列只影响<strong>新登记</strong>的映射 id；已有映射保持原 id（稳定性优先）。</div>
+    <button class="act primary" id="btnSaveOptions">保存选项</button>
+  </div>
+</section>
+
+<section id="tab-mappings">
+  <div class="card">
+    <div class="row">
+      <strong>标记映射表</strong><span id="mapCount" class="kv"></span>
+      <span style="flex:1"></span>
+      <label class="kv"><input type="checkbox" id="mapReveal"> 显示原文</label>
+      <input type="text" id="mapSearch" placeholder="搜索 id / label / 原文…" style="width:220px">
+    </div>
+    <div class="hint">只读视图（真实映射表由运行中的插件进程维护，保存在 data/mappings.json，明文存储原文——请像保管密码一样保管插件目录）。</div>
+    <table><thead><tr><th>id</th><th>label</th><th>原文</th></tr></thead>
+    <tbody id="mapBody"></tbody></table>
+  </div>
+</section>
+
+</main>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const state = { rules:{enabled:true,rules:[]}, custom_values:{enabled:true,values:[]},
+                config:{}, mappings:[], mappings_count:0 };
+const dirty = { rules:false, "custom-values":false, config:false };
+
+function toast(msg, ok=true){
+  const d = document.createElement("div");
+  d.className = "toastItem " + (ok ? "ok" : "err");
+  d.textContent = msg;
+  $("toast").appendChild(d);
+  setTimeout(()=>d.remove(), 3200);
+}
+async function api(path, method="GET", body){
+  const opt = {method, headers:{"Content-Type":"application/json"}};
+  if (body !== undefined) opt.body = JSON.stringify(body);
+  const resp = await fetch(path, opt);
+  const data = await resp.json().catch(()=>({error:"响应不是 JSON"}));
+  if (!resp.ok || data.error) throw new Error(data.error || ("HTTP " + resp.status));
+  return data;
+}
+function el(tag, attrs={}, text){ const n = document.createElement(tag);
+  for (const k in attrs) n[k] = attrs[k]; if (text !== undefined) n.textContent = text; return n; }
+
+function markDirty(key, tab){ dirty[key] = true; const d = $(tab); if (d) d.textContent = dirty[key] ? " ●" : ""; }
+
+// ---- tabs ---------------------------------------------------------------
+document.querySelectorAll("#tabs button").forEach(b=>{
+  b.onclick = () => {
+    document.querySelectorAll("#tabs button").forEach(x=>x.classList.remove("active"));
+    document.querySelectorAll("main section").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");
+    $("tab-" + b.dataset.tab).classList.add("active");
+    if (b.dataset.tab === "mappings") renderMappings();
+  };
+});
+
+// ---- load / refresh ------------------------------------------------------
+async function loadState(){
+  try{
+    const s = await api("/api/state");
+    state.rules = s.rules && s.rules.rules ? s.rules : {enabled:true, rules:[]};
+    state.custom_values = s.custom_values && s.custom_values.values ? s.custom_values : {enabled:true, values:[]};
+    state.config = s.config || {};
+    state.mappings = s.mappings || [];
+    state.mappings_count = s.mappings_count || 0;
+    dirty.rules = dirty["custom-values"] = dirty.config = false;
+    ["dRules","dCustom"].forEach(id=>$(id).textContent="");
+    renderStats(); renderRules(); renderCustom(); renderDetectors(); renderOptions(); renderMappings();
+  }catch(e){ toast("加载失败：" + e.message, false); }
+}
+function renderStats(){
+  $("stats").textContent =
+    `正则规则 ${state.rules.rules.length} 条 · 特殊值 ${state.custom_values.values.length} 条 · ` +
+    `检测模型 ${(state.config.detectors||[]).length} 个 · 映射 ${state.mappings_count} 条 · 插件目录 ${state.plugin_dir||""}`;
+}
+$("btnRefresh").onclick = async () => {
+  if (Object.values(dirty).some(Boolean) && !confirm("有未保存的修改，刷新将丢弃，继续？")) return;
+  await loadState(); toast("已刷新");
+};
+
+// ---- 正则规则 -------------------------------------------------------------
+function renderRules(){
+  $("rulesEnabled").checked = !!state.rules.enabled;
+  const tb = $("rulesBody"); tb.textContent = "";
+  state.rules.rules.forEach((r, i)=>{
+    const tr = document.createElement("tr");
+    const td = () => tr.appendChild(document.createElement("td"));
+    // 启用
+    const lab = el("label", {className:"switch"});
+    const cb = el("input"); cb.type = "checkbox"; cb.checked = r.enabled !== false;
+    cb.onchange = ()=>{ r.enabled = cb.checked; markDirty("rules","dRules"); };
+    lab.append(cb, el("span")); td().append(lab);
+    // 名称
+    const name = el("input", {type:"text"}); name.value = r.name || "";
+    name.oninput = ()=>{ r.name = name.value; markDirty("rules","dRules"); }; td().append(name);
+    // 类型
+    const kind = el("select");
+    [["regex","regex"],["literal","literal"]].forEach(([v,t])=>{
+      const o = el("option",{value:v}); o.textContent = t; kind.append(o); });
+    kind.value = r.kind || "regex";
+    kind.onchange = ()=>{ r.kind = kind.value; markDirty("rules","dRules"); renderRules(); };
+    td().append(kind);
+    // 表达式 / 字面量
+    if (r.kind === "literal"){
+      const inp = el("input", {type:"text"});
+      inp.value = (r.values||[]).join(", ");
+      inp.oninput = ()=>{ r.values = inp.value.split(",").map(s=>s.trim()).filter(Boolean);
+                          markDirty("rules","dRules"); };
+      td().append(inp);
+    } else {
+      const ta = el("textarea", {rows:"2", spellcheck:"false"});
+      ta.value = r.pattern || "";
+      ta.oninput = ()=>{ r.pattern = ta.value; markDirty("rules","dRules"); };
+      td().append(ta);
+    }
+    // capture
+    const cap = el("input", {type:"text", placeholder:"组号/组名"});
+    cap.value = r.capture ?? "";
+    cap.oninput = ()=>{ r.capture = cap.value === "" ? null : cap.value;
+                        markDirty("rules","dRules"); };
+    td().append(cap);
+    // label / desc / priority
+    const label = el("input", {type:"text"}); label.value = r.label || "";
+    label.oninput = ()=>{ r.label = label.value; markDirty("rules","dRules"); }; td().append(label);
+    const desc = el("input", {type:"text"}); desc.value = r.desc || "";
+    desc.oninput = ()=>{ r.desc = desc.value; markDirty("rules","dRules"); }; td().append(desc);
+    const prio = el("input", {type:"number"}); prio.value = r.priority ?? 20;
+    prio.oninput = ()=>{ r.priority = Number(prio.value) || 0; markDirty("rules","dRules"); };
+    td().append(prio);
+    // 删除
+    const del = el("button", {className:"act danger"}); del.textContent = "删除";
+    del.onclick = ()=>{ if (confirm("删除规则 " + (r.name||i) + "？")){
+      state.rules.rules.splice(i,1); markDirty("rules","dRules"); renderRules(); } };
+    td().append(del);
+    tb.append(tr);
+  });
+}
+$("rulesEnabled").onchange = e=>{ state.rules.enabled = e.target.checked; markDirty("rules","dRules"); };
+$("btnAddRule").onclick = ()=>{
+  state.rules.rules.push({kind:"regex", name:"my-rule", pattern:"",
+    label:"CUSTOM", desc:"", priority:20, enabled:true});
+  markDirty("rules","dRules"); renderRules();
+};
+$("btnSaveRules").onclick = async ()=>{
+  try{
+    await api("/api/save","POST",{file:"rules.json", doc:state.rules});
+    dirty.rules = false; $("dRules").textContent = "";
+    toast("正则规则已保存（热重载生效）");
+  }catch(e){ toast("保存失败：" + e.message, false); }
+};
+
+// ---- 特殊值 ---------------------------------------------------------------
+function renderCustom(){
+  $("customEnabled").checked = !!state.custom_values.enabled;
+  const tb = $("customBody"); tb.textContent = "";
+  state.custom_values.values.forEach((v, i)=>{
+    const tr = document.createElement("tr");
+    const td = () => tr.appendChild(document.createElement("td"));
+    const lab = el("label", {className:"switch"});
+    const cb = el("input"); cb.type = "checkbox"; cb.checked = v.enabled !== false;
+    cb.onchange = ()=>{ v.enabled = cb.checked; markDirty("custom-values","dCustom"); };
+    lab.append(cb, el("span")); td().append(lab);
+    const val = el("textarea", {rows:"2"}); val.value = v.value || "";
+    val.oninput = ()=>{ v.value = val.value; markDirty("custom-values","dCustom"); };
+    td().append(val);
+    const label = el("input", {type:"text"}); label.value = v.label || "CUSTOM";
+    label.oninput = ()=>{ v.label = label.value; markDirty("custom-values","dCustom"); };
+    td().append(label);
+    const desc = el("input", {type:"text"}); desc.value = v.desc || "";
+    desc.oninput = ()=>{ v.desc = desc.value; markDirty("custom-values","dCustom"); };
+    td().append(desc);
+    const prio = el("input", {type:"number"}); prio.value = v.priority ?? 1;
+    prio.oninput = ()=>{ v.priority = Number(prio.value) || 0; markDirty("custom-values","dCustom"); };
+    td().append(prio);
+    const del = el("button", {className:"act danger"}); del.textContent = "删除";
+    del.onclick = ()=>{ state.custom_values.values.splice(i,1);
+      markDirty("custom-values","dCustom"); renderCustom(); };
+    td().append(del);
+    tb.append(tr);
+  });
+}
+$("customEnabled").onchange = e=>{ state.custom_values.enabled = e.target.checked;
+  markDirty("custom-values","dCustom"); };
+$("btnAddCustom").onclick = ()=>{
+  state.custom_values.values.push({value:"", label:"CUSTOM", desc:"", priority:1, enabled:true});
+  markDirty("custom-values","dCustom"); renderCustom();
+};
+$("btnSaveCustom").onclick = async ()=>{
+  try{
+    await api("/api/save","POST",{file:"custom-values.json", doc:state.custom_values});
+    dirty["custom-values"] = false; $("dCustom").textContent = "";
+    toast("特殊值已保存（登记的值已注册映射，热重载生效）");
+  }catch(e){ toast("保存失败：" + e.message, false); }
+};
+
+// ---- 检测模型 -------------------------------------------------------------
+function renderDetectors(){
+  $("detectorsEnabled").checked = state.config.enable_detectors !== false;
+  const tb = $("detBody"); tb.textContent = "";
+  (state.config.detectors||[]).forEach((d, i)=>{
+    const tr = document.createElement("tr");
+    const td = () => tr.appendChild(document.createElement("td"));
+    const lab = el("label", {className:"switch"});
+    const cb = el("input"); cb.type = "checkbox"; cb.checked = d.enabled !== false;
+    cb.onchange = ()=>{ d.enabled = cb.checked; markDirty("config",""); };
+    lab.append(cb, el("span")); td().append(lab);
+    const url = el("input", {type:"text"}); url.value = d.url || "";
+    url.oninput = ()=>{ d.url = url.value; markDirty("config",""); }; td().append(url);
+    const mkNum = (key, def) => { const n = el("input", {type:"number"});
+      n.value = d[key] ?? def; n.oninput = ()=>{ d[key] = Number(n.value)||0;
+      markDirty("config",""); }; return n; };
+    td().append(mkNum("timeout_ms", 8000));
+    td().append(mkNum("max_chars", 20000));
+    td().append(mkNum("priority", 100));
+    const label = el("input", {type:"text"}); label.value = d.label || "MODEL";
+    label.oninput = ()=>{ d.label = label.value; markDirty("config",""); }; td().append(label);
+    const desc = el("input", {type:"text"}); desc.value = d.desc || "";
+    desc.oninput = ()=>{ d.desc = desc.value; markDirty("config",""); }; td().append(desc);
+    // 测试
+    const result = el("div", {className:"testResult"});
+    const test = el("button", {className:"act"}); test.textContent = "测试";
+    test.onclick = async ()=>{
+      test.disabled = true; result.textContent = "测试中…";
+      try{
+        const r = await api("/api/test-detector","POST",{url:d.url, timeout_ms:d.timeout_ms});
+        if (r.ok){
+          const n = (r.spans||[]).reduce((a,s)=>a+(s?s.length:0),0);
+          result.textContent = "✔ 连通，返回 " + n + " 个 span\n" + JSON.stringify(r.spans);
+        } else result.textContent = "✘ " + r.error + (r.raw ? "\n" + r.raw : "");
+      }catch(e){ result.textContent = "✘ " + e.message; }
+      test.disabled = false;
+    };
+    td().append(test);
+    const del = el("button", {className:"act danger"}); del.textContent = "删除";
+    del.onclick = ()=>{ state.config.detectors.splice(i,1); markDirty("config","");
+      renderDetectors(); };
+    td().append(del);
+    tr.append(el("td")); // 结果独占一行
+    const tr2 = document.createElement("tr");
+    const td2 = document.createElement("td"); td2.colSpan = 9; td2.append(result);
+    tr2.append(td2);
+    tb.append(tr, tr2);
+  });
+}
+$("detectorsEnabled").onchange = e=>{ state.config.enable_detectors = e.target.checked;
+  markDirty("config",""); };
+$("btnAddDetector").onclick = ()=>{
+  (state.config.detectors = state.config.detectors||[]).push({
+    kind:"http", url:"http://127.0.0.1:8765/detect", enabled:true,
+    timeout_ms:8000, max_chars:20000, priority:100, label:"MODEL", desc:"隐私模型"});
+  markDirty("config",""); renderDetectors();
+};
+$("btnSaveDetectors").onclick = async ()=>{
+  try{
+    await api("/api/save","POST",{file:"config.json", doc:state.config});
+    dirty.config = false; toast("检测模型已保存（热重载生效）");
+  }catch(e){ toast("保存失败：" + e.message, false); }
+};
+
+// ---- 散列与选项 -------------------------------------------------------------
+function renderOptions(){
+  $("optRegex").checked = state.config.enable_regex !== false;
+  $("optNote").checked = state.config.prompt_note !== false;
+  const h = state.config.hash || {};
+  $("hashAlgo").value = h.algorithm || "blake2b";
+  $("hashMode").value = h.mode || "adaptive";
+  $("hashLen").value = h.length ?? 16;
+  $("cacheCap").value = state.config.cache_capacity ?? 4096;
+}
+$("btnSaveOptions").onclick = async ()=>{
+  state.config.enable_regex = $("optRegex").checked;
+  state.config.prompt_note = $("optNote").checked;
+  state.config.hash = { algorithm: $("hashAlgo").value, mode: $("hashMode").value,
+                        length: Number($("hashLen").value) || 16 };
+  state.config.cache_capacity = Number($("cacheCap").value) || 4096;
+  try{
+    await api("/api/save","POST",{file:"config.json", doc:state.config});
+    dirty.config = false; toast("选项已保存（热重载生效）");
+  }catch(e){ toast("保存失败：" + e.message, false); }
+};
+
+// ---- 预览 -------------------------------------------------------------------
+$("btnPreview").onclick = async ()=>{
+  const text = $("pvIn").value.trim();
+  if (!text){ toast("先输入示例文本", false); return; }
+  $("pvOut").textContent = "预览中…"; $("pvMarkers").textContent = "";
+  try{
+    const r = await api("/api/preview","POST",{text});
+    $("pvOut").textContent = r.output || "（无输出）";
+    const ms = r.markers || [];
+    $("pvMarkers").textContent = ms.length
+      ? "产生标记 " + ms.length + " 个：" + ms.map(m=>`⟦${m.id.slice(0,6)}…|${m.label}⟧`).join("  ")
+      : "没有产生标记（检查规则/特殊值是否覆盖了示例内容，并确认已保存）";
+  }catch(e){ $("pvOut").textContent = "预览失败：" + e.message; }
+};
+
+// ---- 映射表 -------------------------------------------------------------------
+function renderMappings(){
+  $("mapCount").textContent = `共 ${state.mappings_count} 条` +
+    (state.mappings.length < state.mappings_count
+      ? `（界面最多显示最近 2000 条）` : "");
+  const reveal = $("mapReveal").checked;
+  const kw = $("mapSearch").value.trim().toLowerCase();
+  const tb = $("mapBody"); tb.textContent = "";
+  state.mappings
+    .filter(m => !kw ||
+      (m.original||"").toLowerCase().includes(kw) ||
+      (m.label||"").toLowerCase().includes(kw) ||
+      (m.id||"").toLowerCase().includes(kw))
+    .forEach(m=>{
+      const tr = document.createElement("tr");
+      const id = el("td"); id.append(el("span",{className:"mono"}, m.id||""));
+      const lb = el("td"); lb.append(el("span",{className:"badge"}, m.label||""));
+      const og = el("td"); og.append(el("span",{className:"mono"},
+        reveal ? (m.original||"") : "••••••（勾选“显示原文”）"));
+      tr.append(id, lb, og); tb.append(tr);
+    });
+}
+$("mapReveal").onchange = renderMappings;
+$("mapSearch").oninput = renderMappings;
+
+// ---- 启动 -------------------------------------------------------------------
+loadState();
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "id": "privacy-replace",
+  "name": "隐私替换",
+  "version": "0.1.0",
+  "description": "把请求中的敏感信息替换为 ⟦PII|…⟧ 标记，流式与非流式响应中自动还原为原文；规则热重载，支持用户自定义正则（捕获组只替换值）与 HTTP 检测模型。引擎全部在本目录脚本内，详见 README.md",
+  "stages": ["pre_request", "post_response", "sse_chunk"],
+  "mode": "persistent",
+  "priority": 50,
+  "command": ["python", "privacy_plugin.py"],
+  "timeout_ms": 10000,
+  "enabled": true
+}

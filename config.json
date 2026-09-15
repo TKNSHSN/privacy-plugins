@@ -1,0 +1,13 @@
+{
+  "prompt_note": true,
+  "enable_regex": true,
+  "enable_detectors": true,
+  "mapping_file": "data/mappings.json",
+  "cache_capacity": 4096,
+  "hash": {
+    "algorithm": "blake2b",
+    "mode": "adaptive",
+    "length": 16
+  },
+  "detectors": []
+}

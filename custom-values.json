@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "values": [
+    {
+      "value": "把你的账号/密码/内网域名等写在这里，例如 my-secret-password-01",
+      "label": "CUSTOM",
+      "desc": "示例（enabled=false，不会生效）",
+      "priority": 1,
+      "enabled": false
+    }
+  ]
+}
