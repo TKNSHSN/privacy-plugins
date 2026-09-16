@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """隐私替换引擎 —— cc-switch 外置隐私插件参考实现（纯标准库，无第三方依赖）
 
-职责（规范见 docs/dev/privacy-pack-contract.md）：
+职责：
 - pre_request  : 白名单走查 + 规则/检测器批量检测 → ⟦PII|id|label|desc⟧ 标记替换 + 协议说明注入
 - post_response: 非流式响应按映射表还原
 - sse_chunk    : 流式逐事件还原（跨 delta 半截标记扣留缓冲，per-stream 状态在本进程内）
@@ -569,7 +569,7 @@ class Engine:
     """插件引擎：持规则/配置（mtime 热重载）、映射存储、缓存、SSE 会话状态。
 
     transport: 可注入的 HTTP POST 函数 (url, payload_bytes, timeout_s) -> bytes，
-    默认 urllib 实现；测试注入假传输，不依赖网络。
+    默认 urllib 实现；传入自定义实现可不依赖网络（配置界面预览即用此机制记录检测失败）。
     """
 
     def __init__(self, plugin_dir: str, transport=None):
@@ -742,9 +742,16 @@ class Engine:
             url = detector.get("url")
             if not isinstance(url, str) or not url.strip():
                 continue
-            timeout_ms = detector.get("timeout_ms", 10000)
-            timeout_s = max(1, int(timeout_ms)) / 1000.0
-            max_chars = detector.get("max_chars")
+            # 配置字段容错：timeout_ms/max_chars 类型错误只跳过本检测器（fail-open），
+            # 不影响正则与其他检测器
+            try:
+                timeout_ms = detector.get("timeout_ms", 10000)
+                timeout_s = max(1, int(timeout_ms)) / 1000.0
+                max_chars = detector.get("max_chars")
+                max_chars = int(max_chars) if max_chars is not None else None
+            except (TypeError, ValueError) as exc:
+                _warn(f"检测器 {url} 配置字段非法，本批按空产出处理: {exc}")
+                continue
             defaults = (
                 int(detector["priority"]) if isinstance(detector.get("priority"), (int, float)) else 100,
                 detector.get("label") or None,
@@ -752,7 +759,7 @@ class Engine:
             )
             indexes, batch = [], []
             for i, text in enumerate(texts):
-                if max_chars is not None and len(text.encode("utf-8")) > int(max_chars):
+                if max_chars is not None and len(text.encode("utf-8")) > max_chars:
                     continue  # 超限字符串跳过该检测器
                 indexes.append(i)
                 batch.append(text)
@@ -891,10 +898,10 @@ class Engine:
         event_name = req.get("event")
         flush = event_name in FLUSH_EVENTS
 
-        if event_name == "message_stop":
-            # 流结束：无条件清空该会话全部状态
-            self.sse_sessions.pop(session_id, None)
         if self.store.is_empty():
+            if event_name == "message_stop":
+                # 流结束：无条件清空该会话全部状态
+                self.sse_sessions.pop(session_id, None)
             return {}
         state = self.sse_sessions.setdefault(
             session_id, {"carries": {}, "seen_marker": False})
@@ -945,6 +952,10 @@ class Engine:
                 if withheld:
                     _warn(f"{event_name} 丢弃未闭合标记残留 ({key}): {withheld}")
             state["carries"].clear()
+
+        if event_name == "message_stop":
+            # 流结束：该会话全部状态出清后整体移除（防常驻进程缓慢累积）
+            self.sse_sessions.pop(session_id, None)
 
         if not changed:
             return {}
