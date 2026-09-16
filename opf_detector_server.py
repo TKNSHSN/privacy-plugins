@@ -10,10 +10,12 @@ OPF token-classification 模型（1.5B 参数 MoE，本地 CPU 推理，无 CUDA
 负责上下文型实体（人名/地址/组织等正则抓不住的东西）。
 
 运行环境：需要 `opf` 包（torch + tiktoken），本仓库插件本体仍然零依赖——
-本服务是可选外挂，装不上就继续用 detector_server.py 或正则。环境搭建：
+本服务是可选外挂，装不上就继续用 detector_server.py 或正则。opf 包与模型
+均不随本仓库提供，从零搭建（全程可复现）：
 uv venv opf_env --python 3.12
 uv pip install --python opf_env torch tiktoken safetensors numpy packaging
-uv pip install --python opf_env -e <privacy-filter 仓库路径>
+git clone https://github.com/openai/privacy-filter
+uv pip install --python opf_env -e ./privacy-filter
 
 启动（用装了 opf 包的解释器）：
     python opf_detector_server.py \
