@@ -574,9 +574,17 @@ class Engine:
 
     def __init__(self, plugin_dir: str, transport=None):
         self.dir = os.path.abspath(plugin_dir)
-        self.rules_path = os.path.join(self.dir, "rules.json")
-        self.custom_values_path = os.path.join(self.dir, "custom-values.json")
-        self.config_path = os.path.join(self.dir, "config.json")
+        # 用户配置统一放 json/ 子目录（plugin.json 按契约仍须在插件根目录）
+        self.json_dir = os.path.join(self.dir, "json")
+        self.rules_path = os.path.join(self.json_dir, "rules.json")
+        self.custom_values_path = os.path.join(self.json_dir, "custom-values.json")
+        self.config_path = os.path.join(self.json_dir, "config.json")
+        # 旧版根目录配置迁移提醒（进程启动时一次性）：配置静默失效是最坏故障，
+        # 必须大声告警而不是悄悄读不到
+        for _name in ("rules.json", "custom-values.json", "config.json"):
+            if os.path.isfile(os.path.join(self.dir, _name)) \
+                    and not os.path.isfile(os.path.join(self.json_dir, _name)):
+                _warn(f"检测到旧版根目录 {_name}:新版配置目录为 json/,请把文件移入后重载")
         self.transport = transport or _http_post_default
         self._rules_mtime = None
         self._config_mtime = None

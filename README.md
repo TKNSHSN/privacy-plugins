@@ -7,7 +7,7 @@
 
 本仓库是 privacy-replace 插件的独立源码仓库。插件协议遵循 cc-switch 插件系统契约
 的 persistent 用户插件模式(契约 §2.5,快照见
-[`docs/plugin-system-contract.md`](./docs/plugin-system-contract.md)。
+[`docs/plugin-system-contract.md`](./docs/plugin-system-contract.md))。
 
 全程对用户透明、对模型不可还原真实值但可正常读写。
 
@@ -60,9 +60,10 @@ privacy-replace/
 ├── plugin.json          # 插件清单(mode: persistent,声明三个挂点)
 ├── privacy_plugin.py    # 入口:常驻进程,按行交换 JSON(stdin/stdout 强制 UTF-8)
 ├── engine.py            # 引擎:标记编解码/映射存储/规则/检测器/JSON 走查/SSE 还原/说明注入
-├── rules.json           # ★ 用户正则/字面量规则(编辑保存即生效)
-├── custom-values.json   # ★ 用户自定义特殊值(预先登记,登记即注册映射)
-├── config.json          # ★ 引擎选项(开关/散列/映射路径/检测模型)
+├── json/                # ★ 用户配置目录(编辑保存即生效)
+│   ├── rules.json          # ★ 正则/字面量规则
+│   ├── custom-values.json  # ★ 自定义特殊值(预先登记,登记即注册映射)
+│   └── config.json         # ★ 引擎选项(开关/散列/映射路径/检测模型)
 ├── configure.py         # 中文菜单配置器(python configure.py)
 ├── configure_server.py  # 可视化配置 Web 服务(仅 127.0.0.1,启动自动开浏览器)
 ├── ui/index.html        # GUI 页面(单文件,零外部依赖)
@@ -189,8 +190,8 @@ pre_request 把命中来源合并处理,优先级规则统一:**priority 数字�
 
 ### 热重载规则
 
-- `rules.json` / `custom-values.json` / `config.json`:每次请求前检查文件修改时间,
-  **保存即生效**,无需重启;
+- json/ 目录下的 `rules.json` / `custom-values.json` / `config.json`:每次请求前检查
+  文件修改时间,**保存即生效**,无需重启;
 - `engine.py` / `plugin.json`(代码与清单):需在插件面板点「重新加载」重建常驻进程。
 
 ### config.json
@@ -358,11 +359,12 @@ python opf_detector_server.py
 > 环境变量 `OPF_CHECKPOINT` 指向任意位置;未找到模型时服务会拒绝启动并给出指引。
 
 - 依赖 `opf` 包(torch + tiktoken,零 CUDA;插件本体仍零依赖,本服务是可选外挂)。
-  从零搭建:
+  `opf` 包与模型都不随本仓库提供,从零搭建(全程可复现):
   ```
   uv venv opf_env --python 3.12
   uv pip install --python opf_env torch tiktoken safetensors numpy packaging
-  uv pip install --python opf_env -e <privacy-filter 仓库路径>
+  git clone https://github.com/openai/privacy-filter
+  uv pip install --python opf_env -e ./privacy-filter
   ```
 - 模型目录缺省取环境变量 `OPF_CHECKPOINT`,再退到插件目录下 `opf_ckpt/`(原生格式:
   config.json + model.safetensors + viterbi_calibration.json;HF 转换格式勿混用);

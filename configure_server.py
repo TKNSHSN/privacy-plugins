@@ -5,7 +5,7 @@
 浏览器自动打开 http://127.0.0.1:<port>/（端口占用自动顺延）。
 
 职责：
-- 提供 ui/index.html 与 /api/* 配置接口（读改 rules.json / custom-values.json /
+- 提供 ui/index.html 与 /api/* 配置接口（读改 json/ 目录下的 rules.json / custom-values.json /
   config.json，原子写，正则服务端校验）；
 - /api/preview：用引擎做**干跑预览**（临时目录里拷贝映射表，不污染真实映射）；
 - /api/test-detector：对配置的检测模型发一次真实批量调用，验证模型服务连通与产出。
@@ -28,7 +28,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 UI_DIR = os.path.join(DIR, "ui")
-PLUGIN_FILES = ("rules.json", "custom-values.json", "config.json")
+JSON_DIR = os.path.join(DIR, "json")
+CONFIG_FILES = ("rules.json", "custom-values.json", "config.json")
 
 for _s in (sys.stdout, sys.stderr):
     try:
@@ -51,7 +52,8 @@ class ApiError(Exception):
 
 
 def _load_doc(name):
-    path = os.path.join(DIR, name)
+    """读 json/ 目录下的用户配置（name 为文件名，如 rules.json）"""
+    path = os.path.join(JSON_DIR, name)
     if not os.path.isfile(path):
         return {}
     try:
@@ -62,7 +64,7 @@ def _load_doc(name):
 
 
 def _atomic_write(name, doc):
-    path = os.path.join(DIR, name)
+    path = os.path.join(JSON_DIR, name)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(doc, fh, ensure_ascii=False, indent=2)
@@ -167,10 +169,11 @@ class _RecordingTransport:
 
 def make_preview_engine(transport=None):
     tmp = tempfile.mkdtemp(prefix="privacy-preview-")
-    for name in PLUGIN_FILES:
-        src = os.path.join(DIR, name)
+    os.makedirs(os.path.join(tmp, "json"), exist_ok=True)
+    for name in CONFIG_FILES:
+        src = os.path.join(JSON_DIR, name)
         if os.path.isfile(src):
-            shutil.copy(src, os.path.join(tmp, name))
+            shutil.copy(src, os.path.join(tmp, "json", name))
     mappings = os.path.join(DIR, "data", "mappings.json")
     if os.path.isfile(mappings):
         os.makedirs(os.path.join(tmp, "data"), exist_ok=True)
@@ -213,8 +216,14 @@ class Handler(BaseHTTPRequestHandler):
             if self.path in ("/", "/index.html"):
                 self._serve_index()
             elif self.path == "/api/state":
-                mappings = _load_doc(os.path.join("data", "mappings.json")) \
-                    if os.path.isfile(os.path.join(DIR, "data", "mappings.json")) else []
+                mappings_path = os.path.join(DIR, "data", "mappings.json")
+                mappings = []
+                if os.path.isfile(mappings_path):
+                    try:
+                        with open(mappings_path, "r", encoding="utf-8") as fh:
+                            mappings = json.load(fh)
+                    except Exception:
+                        mappings = []  # 映射文件损坏时界面按空表展示，不阻塞配置面板
                 rows = mappings if isinstance(mappings, list) else []
                 self._send_json({
                     "plugin_dir": DIR,

@@ -2,7 +2,7 @@
 """隐私插件配置器（中文菜单）：免手写 JSON 的配置入口。
 
 用法：在本插件目录执行  python configure.py
-修改的就是插件同目录的 rules.json / custom-values.json / config.json，
+修改的就是 json/ 目录下的 rules.json / custom-values.json / config.json，
 保存即生效（引擎每次请求前检查文件修改时间，热重载，无需重启 cc-switch）。
 """
 
@@ -12,6 +12,7 @@ import re
 import sys
 
 DIR = os.path.dirname(os.path.abspath(__file__))
+JSON_DIR = os.path.join(DIR, "json")
 
 for _s in (sys.stdin, sys.stdout, sys.stderr):
     try:
@@ -21,7 +22,7 @@ for _s in (sys.stdin, sys.stdout, sys.stderr):
 
 
 def load(name, default):
-    path = os.path.join(DIR, name)
+    path = os.path.join(JSON_DIR, name)
     if not os.path.isfile(path):
         return default
     try:
@@ -37,7 +38,7 @@ def load(name, default):
 
 
 def save(name, doc):
-    path = os.path.join(DIR, name)
+    path = os.path.join(JSON_DIR, name)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(doc, fh, ensure_ascii=False, indent=2)
