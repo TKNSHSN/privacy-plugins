@@ -58,11 +58,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, obj, status=200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except OSError as exc:
+            # 客户端已放弃连接（插件侧超时被杀/请求方主动断开）：无法回包，
+            # 记一行即可，不再向 socketserver 抛出（否则打印整段 traceback）
+            print(f"[detector] 客户端中断连接，丢弃响应: {exc}", file=sys.stderr)
+            self.close_connection = True
 
     def do_POST(self):
         if urlparse(self.path).path not in ("/detect", "/"):

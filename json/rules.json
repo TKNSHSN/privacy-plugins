@@ -24,7 +24,7 @@
     {
       "kind": "regex",
       "name": "cn-mobile",
-      "pattern": "1[3-9][0-9]{9}",
+      "pattern": "(?<!\\d)1[3-9]\\d{9}(?!\\d)",
       "label": "PHONE",
       "desc": "中国大陆手机号",
       "priority": 20,

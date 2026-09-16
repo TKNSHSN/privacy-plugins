@@ -7,6 +7,6 @@
   "mode": "persistent",
   "priority": 50,
   "command": ["python", "privacy_plugin.py"],
-  "timeout_ms": 10000,
+  "timeout_ms": 60000,
   "enabled": true
 }
