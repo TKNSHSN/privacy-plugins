@@ -6,9 +6,52 @@
 不依赖核心代码;协议与语言无关,任何语言都可按同一协议重写。
 
 本仓库是 privacy-replace 插件的独立源码仓库。插件协议遵循 cc-switch 插件系统契约
-(`plugin-system-contract.md` §2.5,存于 cc-switch 仓库 `docs/dev/`)的 persistent 用户插件模式。
+的 persistent 用户插件模式(契约 §2.5,快照见
+[`docs/plugin-system-contract.md`](./docs/plugin-system-contract.md)。
 
 全程对用户透明、对模型不可还原真实值但可正常读写。
+
+## 为什么需要这样一个插件
+
+作为Agent重度使用者，当我看到[Countering misuse of AI: September 2026 / Anthropic \ Anthropic](https://www.anthropic.com/threat-intelligence-report-september-2026)我居然释然了：这一天早就该发生了。
+
+我们应该天然的拒绝相信中转站，天然的不相信**任何**ai-api服务提供者。服务商可以用收集到的大量对话数据微调/训练模型，也可以在一个**意外**下将数据泄露给怀有恶意的hacker。我们因此不用任何在线服务是不现实的：本地模型是隐私且昂贵的。工具本身是无罪的。
+
+于是我想到让路由网关处理它们-那些文本信息。这当然是有缺点的我也必须得提前说明：隐私信息的载体太多了，程序上没有办法以低性能损失过滤大量的隐私信息，只能降低期望。在平时使用Agent有意识地不发送传输隐私信息、工作目录不放置隐私文件等一定是好习惯。但是我们还是会懒懒的想到：**让Agent跑通多个API端口、让Agent挖掘漏洞渗透测试、让Agent处理报单**，这些工作太日常了，以至于我们难以确保隐私信息不泄露。OpenAI曾推出一款为了隐私而生的标记大模型[openai/privacy-filter](https://github.com/openai/privacy-filter)、[Ai4Privacy](https://huggingface.co/ai4privacy)也提供了许多语言版本/识别对象的相关大模型，我们可以利用起来，先本地过滤一遍再给云端AI。但仅仅是隐去api-key可不能让Agent替你跑通端口，我们需要一个方案让Agent能用并且又不知道真实值。
+
+以往的方案是将key一类写入.env，这的确有效，我们给AI的值是`{API_KEY}`而不是`sk-......`。但本插件野心勃勃，本插件既然在网关层做了处理就必须控制更大范围的隐私泄露：读取文件-写入文件对用户透明，你看到的是真实值，AI只能看到hash；通过prompt，告诉了AI见到的占位标记都是可以直接使用的（一切带有真实完整标记的message到客户端都被网关层还原为真实值）。
+
+[CC Switch](https://ccswitch.io)具有优势：代理/管理众多Agent，网关层覆写，开源生态。于是我尝试二次开发并pr了插件项目，并且，在我的环境上已经使用了本插件。
+
+如果想体验，请尝试[我二次开发的CC Switch](https://github.com/TKNSHSN/cc-switch)或者期待更新。
+
+
+
+![image-20260916111025219](./image/image-20260916111025219.png)
+
+![image-20260916111636625](./image/image-20260916111636625.png)
+
+![image-20260916111726332](./image/image-20260916111726332.png)
+
+![image-20260916111818425](./image/image-20260916111818425.png)
+
+以上仅是用样例做测试，如果对其他数据有屏蔽需求，可以配置 rules.json 。
+
+
+
+
+
+一点bug：若启用隐私标记大模型，在运行agent时会弹窗（窗口名称某python.exe)
+
+> [openai/privacy-filter: OpenAI Privacy Filter](https://github.com/openai/privacy-filter)
+>
+> [Countering misuse of AI: September 2026 / Anthropic \ Anthropic](https://www.anthropic.com/threat-intelligence-report-september-2026)
+>
+> [malteos/awesome-anonymization-for-llms: A collection of resources for PII detection, anonymization, privacy-preserving techniques, and GDPR compliance in Large Language Model (LLM) or AI applications.](https://github.com/malteos/awesome-anonymization-for-llms?f_link_type=f_linkinlinenote&flow_extra=eyJpbmxpbmVfZGlzcGxheV9wb3NpdGlvbiI6MCwiZG9jX3Bvc2l0aW9uIjowLCJkb2NfaWQiOiJlM2QwODVjMjYwZDZkYTI1LTE5ZjFjZTE2MjFkODI0YmIifQ%3D%3D)
+>
+> [ai4privacy (Ai4Privacy)](https://huggingface.co/ai4privacy)
+>
+> [CC Switch](https://ccswitch.io)
 
 ## 目录结构
 
@@ -25,6 +68,7 @@ privacy-replace/
 ├── ui/index.html        # GUI 页面(单文件,零外部依赖)
 ├── detector_server.py   # 参考检测模型服务(演示规则,接真实模型的接入点)
 ├── opf_detector_server.py  # OPF 真实模型检测服务(openai/privacy-filter,可选外挂)
+├── docs/plugin-system-contract.md  # cc-switch 插件契约快照(本插件协议依据,§2.5)
 └── data/mappings.json   # 运行时映射表(明文存原文,首次替换时生成;见「安全边界」)
 ```
 
@@ -53,7 +97,7 @@ cc-switch → 设置 → 高级 → 插件 → **导入插件**,选择本目录(
 | `mode`       | `persistent`                                  | 常驻进程,详见下                                            |
 | `priority`   | `50`                                          | 数字越小越先执行(用户插件缺省 500,内置插件占 100–899)      |
 | `command`    | `["python", "privacy_plugin.py"]`             | argv 数组,相对路径按插件目录解析;子进程工作目录 = 插件目录 |
-| `timeout_ms` | `10000`                                       | 单次调用超时,上限 60000                                    |
+| `timeout_ms` | `60000`                                       | 单次调用超时,上限 60000;启用检测模型时须 ≥ 最慢 detector 的 `timeout_ms`(否则核心判超时杀进程重启,见「检测模型接入」) |
 | `enabled`    | `true`                                        | 面板里可随时开关                                           |
 
 ### 进程模型(persistent)
@@ -234,6 +278,11 @@ api_key = "abcd1234efgh5678"   →   api_key = "⟦PII|…|SECRET|kv密钥值⟧
 检测失败/超时/结构不符 → 该检测器本批空产出,不影响正则与主链路。`max_chars`(UTF-8 字节数)
 防大文本拖垮模型服务。每个 detector 有独立 `enabled`,勾选实际参与检测的模型。
 
+> **超时预算红线**:`plugin.json` 的 `timeout_ms` 是单次挂点调用的总预算,必须大于所有启用
+> detector 的 `timeout_ms` 之和(上限 60000)。否则核心判定插件超时 → 杀掉常驻进程重新拉起
+> (若 `command` 解析到 Windows 商店 Python 存根还会每次弹控制台窗口),检测服务端则看到
+> 连接被中断;重试仍超时则本请求跳过本插件。
+
 自建检测服务可参考 `detector_server.py`(它就是协议参考实现),或把真实模型推理
 (如 pr_framework 的 OPF/piiranha)接进其 `char_spans()`——字节偏移换算脚本已处理。
 OPF(openai/privacy-filter)本地模型有现成服务 `opf_detector_server.py`,见
@@ -300,21 +349,24 @@ python detector_server.py            # 监听 http://127.0.0.1:8765/detect(--por
 `detector_server.py` 同一 `/detect` 协议(返回字节偏移),仅监听 127.0.0.1:
 
 ```
-T:\note\agent_work\privacy_replace\opf_env\Scripts\python.exe opf_detector_server.py
+python opf_detector_server.py
 # 缺省 --port 8765 --device cpu --priority 100;--checkpoint 指定其它模型目录
 ```
 
+> **模型本体不随本仓库提供**(体积大,是否下载由你决定):按 openai/privacy-filter
+> 官方仓库说明获取 checkpoint 后,放到插件目录下的 `opf_ckpt/`,或用 `--checkpoint` /
+> 环境变量 `OPF_CHECKPOINT` 指向任意位置;未找到模型时服务会拒绝启动并给出指引。
+
 - 依赖 `opf` 包(torch + tiktoken,零 CUDA;插件本体仍零依赖,本服务是可选外挂)。
-  本机环境 `opf_env` 已装好;从零搭建:
+  从零搭建:
   ```
   uv venv opf_env --python 3.12
   uv pip install --python opf_env torch tiktoken safetensors numpy packaging
   uv pip install --python opf_env -e <privacy-filter 仓库路径>
   ```
-- 模型目录缺省取环境变量 `OPF_CHECKPOINT`,再退到本机
-  `T:\note\agent_work\privacy_replace\opf_ckpt`(原生格式;同目录 `opf_model/` 是
-  HF 转换格式,勿混用);
-- 启动即加载 2.8GB 权重(本机约 2–3s);CPU 推理约 1s/条、批量串行——插件侧该
+- 模型目录缺省取环境变量 `OPF_CHECKPOINT`,再退到插件目录下 `opf_ckpt/`(原生格式:
+  config.json + model.safetensors + viterbi_calibration.json;HF 转换格式勿混用);
+- 启动即加载权重(视磁盘数秒);CPU 推理约 1s/条、批量串行——插件侧该
   detector 的 `timeout_ms` 建议 ≥30000,文本总量大时靠 `max_chars` 限流;
 - 启用:config.json `detectors` 加
   `{"kind":"http","url":"http://127.0.0.1:8765/detect","timeout_ms":30000,…}`
@@ -337,3 +389,7 @@ T:\note\agent_work\privacy_replace\opf_env\Scripts\python.exe opf_detector_serve
 按行交换 JSON(形状见「调用协议」);需要具备:UTF-8 stdio、标记编解码、映射持久化、
 SSE 跨事件扣留缓冲(放在你自己进程内存里)。`detector_server.py` 的 HTTP 批量协议
 同样是语言无关的。
+
+## 许可证
+
+MIT,见 [LICENSE](./LICENSE)。

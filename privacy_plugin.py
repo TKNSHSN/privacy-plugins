@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""隐私替换插件入口：常驻进程，按行交换 JSON（协议见 docs/dev/plugin-system-contract.md 2.5）。
+"""隐私替换插件入口：常驻进程，按行交换 JSON（协议见 docs/plugin-system-contract.md 2.5）。
 
 请求一行 JSON（cc-switch → stdin）：{"stage": "...", "session_id": "...", "body": {...}}
   sse_chunk 额外携带 "event" / "data"；

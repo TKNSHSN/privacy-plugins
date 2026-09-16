@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """隐私插件可视化配置服务：本地 Web GUI（仅监听 127.0.0.1，纯标准库）。
 
-启动：python configure_server.py（或双击 启动配置界面.bat）
+启动：python configure_server.py
 浏览器自动打开 http://127.0.0.1:<port>/（端口占用自动顺延）。
 
 职责：

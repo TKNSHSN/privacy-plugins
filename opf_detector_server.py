@@ -10,26 +10,29 @@ OPF token-classification 模型（1.5B 参数 MoE，本地 CPU 推理，无 CUDA
 负责上下文型实体（人名/地址/组织等正则抓不住的东西）。
 
 运行环境：需要 `opf` 包（torch + tiktoken），本仓库插件本体仍然零依赖——
-本服务是可选外挂，装不上就继续用 detector_server.py 或正则。
-本机现成环境（uv 建）：T:\\note\\agent_work\\privacy_replace\\opf_env，
-安装方式：uv venv opf_env --python 3.12
-          uv pip install --python opf_env torch tiktoken safetensors numpy packaging
-          uv pip install --python opf_env -e <privacy-filter 仓库路径>
+本服务是可选外挂，装不上就继续用 detector_server.py 或正则。环境搭建：
+uv venv opf_env --python 3.12
+uv pip install --python opf_env torch tiktoken safetensors numpy packaging
+uv pip install --python opf_env -e <privacy-filter 仓库路径>
 
-启动：
-    <opf_env>/Scripts/python.exe opf_detector_server.py \
+启动（用装了 opf 包的解释器）：
+    python opf_detector_server.py \
         [--checkpoint <模型目录>] [--port 8765] [--device cpu]
         [--priority 100] [--max-bytes 20000] [--decode viterbi]
-模型目录缺省取环境变量 OPF_CHECKPOINT，再退到本机默认
-T:\\note\\agent_work\\privacy_replace\\opf_ckpt（原生格式：config.json +
-model.safetensors + viterbi_calibration.json；opf_model/ 是 HF 转换格式）。
 
-首次调用触发 2.8GB 权重加载（本机 NVMe 数秒），之后每次前向约零点几秒——
+模型本体不随本仓库提供（体积大），是否下载由你决定：按 openai/privacy-filter
+仓库说明获取 checkpoint 后放到插件目录 opf_ckpt/（原生格式：config.json +
+model.safetensors + viterbi_calibration.json；HF 转换格式勿混用），或用
+--checkpoint / 环境变量 OPF_CHECKPOINT 指向任意位置。未找到模型目录时本服务
+拒绝启动并给出指引。
+
+首次调用触发权重加载（视磁盘数秒），之后每次前向约零点几秒——
 CPU 上批量文本是串行推理，插件侧 detector 的 timeout_ms 建议 ≥30000。
 """
 
 import argparse
 import json
+import os
 import sys
 import threading
 import time
@@ -42,7 +45,9 @@ for _s in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-DEFAULT_CHECKPOINT = r"T:\note\agent_work\privacy_replace\opf_ckpt"
+# 缺省模型目录 = 插件目录下 opf_ckpt/（需自行下载放入，见文件头说明）
+DEFAULT_CHECKPOINT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "opf_ckpt")
 
 # 模型 8 类标签 → 插件标记的 (label, desc)。改这里即可换呈现，不影响协议。
 LABEL_MAP = {
@@ -116,11 +121,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, obj, status=200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except OSError as exc:
+            # 客户端已放弃连接（插件侧超时被杀/请求方主动断开）：无法回包，
+            # 记一行即可，不再向 socketserver 抛出（否则打印整段 traceback）
+            print(f"[opf-detector] 客户端中断连接，丢弃响应: {exc}", file=sys.stderr)
+            self.close_connection = True
 
     def do_GET(self):
         if urlparse(self.path).path in ("/health", "/"):
@@ -148,14 +159,17 @@ class Handler(BaseHTTPRequestHandler):
 def resolve_checkpoint(arg_value):
     if arg_value:
         return arg_value
-    import os
     env_value = os.environ.get("OPF_CHECKPOINT")
     if env_value:
         return env_value
-    if __import__("os").path.isdir(DEFAULT_CHECKPOINT):
+    if os.path.isdir(DEFAULT_CHECKPOINT):
         return DEFAULT_CHECKPOINT
-    raise SystemExit("未指定模型目录：--checkpoint / OPF_CHECKPOINT 均为空，"
-                     f"本机默认路径也不存在（{DEFAULT_CHECKPOINT}）")
+    raise SystemExit(
+        "未找到 OPF 模型目录：--checkpoint / 环境变量 OPF_CHECKPOINT 均未设置，"
+        f"插件目录内缺省位置也不存在（{DEFAULT_CHECKPOINT}）。\n"
+        "模型本体不随本仓库提供，是否下载由你决定：按 openai/privacy-filter 仓库说明"
+        "获取 checkpoint（原生格式）后放到上述缺省位置，"
+        "或用 --checkpoint / OPF_CHECKPOINT 指向任意位置。")
 
 
 def main():
