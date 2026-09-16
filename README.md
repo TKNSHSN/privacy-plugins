@@ -39,10 +39,6 @@
 
 
 
-
-
-一点bug：若启用隐私标记大模型，在运行agent时会弹窗（窗口名称某python.exe)
-
 > [openai/privacy-filter: OpenAI Privacy Filter](https://github.com/openai/privacy-filter)
 >
 > [Countering misuse of AI: September 2026 / Anthropic \ Anthropic](https://www.anthropic.com/threat-intelligence-report-september-2026)
