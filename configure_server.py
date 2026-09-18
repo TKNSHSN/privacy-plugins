@@ -124,7 +124,7 @@ def validate_custom_doc(doc):
 def validate_config_doc(doc):
     if not isinstance(doc, dict):
         raise ApiError("config.json 必须是 JSON 对象")
-    for key in ("enable_regex", "enable_detectors", "prompt_note"):
+    for key in ("enable_regex", "enable_detectors", "prompt_note", "enable_hexdump_guard"):
         if key in doc:
             doc[key] = bool(doc[key])
     doc["cache_capacity"] = max(16, _as_int(doc.get("cache_capacity"), 4096))

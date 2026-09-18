@@ -58,7 +58,14 @@ MARKER_PROMPT_NOTE = (
     "（如 $USERPROFILE/$HOME）拼接，避免手写反斜杠路径片段；JSON 字符串中的反斜杠"
     "必须按 JSON 规则转义。\n"
     "5. 向用户复述相关内容时同样保留标记（还原对用户透明）；报告需要标记本身时，"
-    "不要输出完整 id，例如你可以只给出 id 前 6 位缩写。"
+    "不要输出完整 id，例如你可以只给出 id 前 6 位缩写。\n"
+    "6. 工具输出的十六进制转储（xxd/hexdump）中，hex 列成片的 xx 与 ASCII 列成片的 . "
+    "是隐私层对敏感字节的遮蔽：不代表文件本身如此，不要猜测或尝试还原被抹内容；"
+    "未抹除的偏移与字节是精确的，可放心用于结构分析与按 offset 定点写入；"
+    "不要把脱敏转储整段回写为文件。\n"
+    "7. 查看文本内容请优先用文本方式读取；同一文件以十六进制方式读取时，"
+    "其中敏感内容会呈现为 xx/. 而非本标记。确实需要某个被抹的值参与任务时，"
+    "请让用户以文本方式提供，不要尝试绕过遮蔽。"
 )
 
 FLUSH_EVENTS = ("content_block_stop", "message_delta", "message_stop")
@@ -460,6 +467,143 @@ def _resolve_overlaps(spans):
 
 
 # ---------------------------------------------------------------------------
+# 十六进制转储防护（xxd / hexdump -C 列视图）
+#
+# 工具输出的 hex 列是原文的另一种编码：文本正则看不见它，敏感值会原样泄漏；
+# 同时 16 字节定宽列把原文切碎，ASCII 列只剩片段（片段仍可能被正则命中，
+# 产生片段映射，甚至前缀 IP 误配成另一个映射值）。这里把连续转储行重建为
+# 连续字节流，在字节流上复用正则/特殊值检测，命中的字节在 hex 列替换为 xx、
+# ASCII 列替换为 . ——两者都是投影上的不可逆清除，不走标记映射（转储片段
+# 不产生映射与标记）。base64/压缩等其它编码形态仍是盲区（见 README 安全边界）。
+# ---------------------------------------------------------------------------
+
+_HEXD_OFFSET_COLON_RE = re.compile(r"^\s*[0-9A-Fa-f]{1,16}:\s")    # xxd: "00000000: "
+_HEXD_OFFSET_BLANK_RE = re.compile(r"^\s*[0-9A-Fa-f]{6,16}\s{2,}")  # hexdump -C: "00000000  "
+_HEXD_HEX_CHARS = frozenset("0123456789abcdefABCDEF")
+_HEXD_MAX_PAIRS = 32      # 单行 pair 上限（标准工具 16/行，留余量；超宽视为误判）
+_HEXD_MIN_PAIRS = 4       # 少于 4 对不视为转储行（排除散文里零星 hex 词）
+
+
+def _hexd_parse_line(line: str):
+    """解析一行转储输出。返回 (pairs, ascii_text, ascii_start) 或 None。
+
+    pairs = [(start, end, byte_value)]（行内文本下标）；hex 列按"空格分隔的
+    偶长 hex 段"贪心解析，遇到 ≥2 空格的列间隔或首个异样段即进入 ASCII 列
+    （xxd 与 hexdump -C 的 ASCII 列前都有两空格；hexdump -C 的 ASCII 列带
+    |…| 包裹，此处剥掉）。
+    """
+    raw = line.rstrip("\r\n")
+    m = _HEXD_OFFSET_COLON_RE.match(raw)
+    if m is not None:
+        pos = m.end()
+    else:
+        m = _HEXD_OFFSET_BLANK_RE.match(raw)
+        if m is None:
+            return None
+        pos = m.end()
+    pairs = []
+    ascii_start = None
+    n = len(raw)
+    while pos < n:
+        gap = 0
+        while pos < n and raw[pos] in " \t":
+            gap += 1
+            pos += 1
+        if pos >= n:
+            break
+        run_start = pos
+        while pos < n and raw[pos] not in " \t":
+            pos += 1
+        run = raw[run_start:pos]
+        is_hex = (len(run) % 2 == 0 and 2 <= len(run) <= 16
+                  and all(c in _HEXD_HEX_CHARS for c in run))
+        if pairs and (gap >= 2 or not is_hex):
+            ascii_start = run_start  # 列间隔或异样段：ASCII 列开始（形似 hex 也不再解析）
+            break
+        if not is_hex:
+            return None
+        for k in range(0, len(run), 2):
+            pairs.append((run_start + k, run_start + k + 2, int(run[k:k + 2], 16)))
+        if len(pairs) > _HEXD_MAX_PAIRS:
+            return None
+    if len(pairs) < _HEXD_MIN_PAIRS:
+        return None
+    ascii_text = ""
+    if ascii_start is not None:
+        ascii_text = raw[ascii_start:]
+        if len(ascii_text) >= 2 and ascii_text[0] == "|" and ascii_text[-1] == "|":
+            ascii_text = ascii_text[1:-1]
+            ascii_start += 1
+    return pairs, ascii_text, ascii_start
+
+
+def _hexd_mask_block(out_lines, lines, i, j, detect):
+    """对 lines[i:j] 的连续转储块做检测与抹除，改动写入 out_lines。"""
+    rows = []
+    for li in range(i, j):
+        parsed = _hexd_parse_line(lines[li])
+        if parsed is None:
+            return  # 形态不齐，整块放弃（宁可漏不误伤普通文本）
+        rows.append((li,) + parsed)
+    data = bytearray()
+    owner = []  # 全局字节下标 -> (行下标 rows 内, 行内 pair 下标)
+    for r, (_li, pairs, _at, _as) in enumerate(rows):
+        for k, (_s, _e, val) in enumerate(pairs):
+            data.append(val)
+            owner.append((r, k))
+    # 字节流按 latin-1 解码（字节↔字符 1:1，检测下标即字节下标）；
+    # 邮箱/IP/手机号等规则目标均为 ASCII，解码失真不影响命中
+    decoded = data.decode("latin-1")
+    spans = detect(decoded)
+    if not spans:
+        return
+    edits = {}  # 行号 -> [(start, end, 替换文本)]
+    for b0, b1, _prio, _order, _label, _desc in spans:
+        for b in range(b0, min(b1, len(owner))):
+            r, k = owner[b]
+            li, pairs, ascii_text, a_start = rows[r]
+            s, e, _v = pairs[k]
+            edits.setdefault(li, []).append((s, e, "xx"))
+            if a_start is not None and k < len(ascii_text):
+                edits[li].append((a_start + k, a_start + k + 1, "."))
+    for li, items in edits.items():
+        new = out_lines[li]
+        # "xx"/"." 与被替换片段等长，替换不位移；倒序仅为直观安全
+        for s, e, rep in sorted(items, key=lambda t: (t[0], t[1]), reverse=True):
+            new = new[:s] + rep + new[e:]
+        out_lines[li] = new
+
+
+def _hexdump_mask(text: str, detect) -> str:
+    """扫描文本中的 xxd/hexdump -C 转储块并抹除其中的规则命中值。
+
+    detect(decoded_str) 返回 canonical span 列表（同 _apply_spans 形状）。
+    无转储块时原样返回（保持对象同一性，走查方按内容判断是否修改）。
+    """
+    if "  " not in text:
+        return text
+    lines = text.splitlines(keepends=True)
+    out = list(lines)
+    n = len(lines)
+    i = 0
+    while i < n:
+        parsed = _hexd_parse_line(lines[i])
+        if parsed is None:
+            i += 1
+            continue
+        j = i + 1
+        while j < n and _hexd_parse_line(lines[j]) is not None:
+            j += 1
+        # ≥2 行连续即认块；孤立单行需 ≥8 对（16 字节整行）才算转储
+        if (j - i) >= 2 or len(parsed[0]) >= 8:
+            _hexd_mask_block(out, lines, i, j, detect)
+        i = j
+    if out == lines:
+        return text
+    return "".join(out)
+
+
+# ---------------------------------------------------------------------------
 # 检测器（config.json detectors，可选；http 批量协议）
 # ---------------------------------------------------------------------------
 
@@ -735,6 +879,14 @@ class Engine:
                 from_i = end
         return spans
 
+    def _hexguard_detect(self, decoded: str):
+        """hexdump 防护的检测回调：在重建的字节流上复用特殊值与正则规则
+        （检测模型不参与——避免每次转储都产生一次额外的慢速 HTTP 调用）"""
+        spans = self._collect_custom_spans(decoded)
+        if self.config.get("enable_regex", True):
+            spans = spans + self._collect_regex_spans(decoded)
+        return _resolve_overlaps(spans) if spans else []
+
     def _detect_batch(self, texts):
         """每个检测器各做一次批量调用（每请求每检测器至多一次）；
         失败/超限的检测器本批空产出（fail-open，不影响其他检测器）"""
@@ -808,15 +960,22 @@ class Engine:
             return result
         detector_spans = self._detect_batch(pending)
         use_regex = self.config.get("enable_regex", True)  # 总开关：正则引擎
-        for slot, text in enumerate(pending):
+        hexguard = self.config.get("enable_hexdump_guard", True)  # 总开关：转储防护
+        for slot, original in enumerate(pending):
+            # 阶段 0：十六进制转储防护——hex 列是原文的另一编码，先在重建字节流上
+            # 检测并抹除（无转储块时原样返回），后续检测/替换作用于抹除后的文本；
+            # result/缓存必须仍以原始文本为键（apply 阶段按原文取替换结果）
+            text = original
+            if hexguard:
+                text = _hexdump_mask(text, self._hexguard_detect)
             # span 来源：自定义特殊值（用户登记，优先）+ 正则规则 + 检测模型
             spans = self._collect_custom_spans(text)
             if use_regex:
                 spans = spans + self._collect_regex_spans(text)
             spans = spans + detector_spans[slot]
             replaced = self._apply_spans(text, spans)
-            self.cache[self._cache_key(text)] = replaced
-            result[text] = replaced
+            self.cache[self._cache_key(original)] = replaced
+            result[original] = replaced
         self._cache_trim()
         return result
 
