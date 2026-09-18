@@ -67,20 +67,22 @@ button:disabled{opacity:.5;cursor:default}
 .testResult{font-family:Consolas,Menlo,monospace;font-size:12px;white-space:pre-wrap;
   color:var(--muted);margin-top:6px;word-break:break-all}
 .kv{color:var(--muted);font-size:12px}
+.dirtyMark{color:var(--err);font-weight:700}
 </style>
 </head>
 <body>
 <header>
   <h1>隐私替换插件 · 配置界面</h1>
   <div id="stats" class="stats">加载中…</div>
+  <div id="dirtyBanner" style="display:none;color:var(--err);font-weight:600">⚠ 有未保存的配置修改</div>
   <button class="act" id="btnRefresh">↻ 刷新</button>
 </header>
 <nav id="tabs">
   <button data-tab="preview" class="active">实时预览</button>
   <button data-tab="rules">正则规则 <span id="dRules"></span></button>
   <button data-tab="custom">特殊值 <span id="dCustom"></span></button>
-  <button data-tab="detectors">检测模型</button>
-  <button data-tab="options">散列与选项</button>
+  <button data-tab="detectors">检测模型 <span id="dDetectors"></span></button>
+  <button data-tab="options">散列与选项 <span id="dOptions"></span></button>
   <button data-tab="mappings">映射表</button>
 </nav>
 <main>
@@ -109,7 +111,7 @@ button:disabled{opacity:.5;cursor:default}
       <button class="act" id="btnAddRule">＋ 添加规则</button>
       <button class="act primary" id="btnSaveRules">保存正则</button>
     </div>
-    <div class="hint">pattern 用 Python re 语法；<b>capture</b> 填组号或组名 = 只替换该组（如 kv 密钥只遮值保键名）；优先级数字越小越优先。</div>
+    <div class="hint">pattern 用 Python re 语法；<b>capture</b> 填组号或组名 = 只替换该组（如 kv 密钥只遮值保键名）；优先级数字越小越优先。<b>同一套规则作用于两个通道</b>：文本读取（cat/Read → 命中处替换为 ⟦PII|…⟧ 标记）与十六进制转储（xxd/hexdump → 命中字节抹为 xx/.），不存在按通道分开的规则。</div>
     <table><thead><tr>
       <th>启用</th><th>名称</th><th>类型</th><th style="width:34%">表达式 / 字面量</th>
       <th>capture</th><th>标记 label</th><th>描述</th><th>优先级</th><th></th>
@@ -159,7 +161,9 @@ button:disabled{opacity:.5;cursor:default}
       <label class="switch"><input type="checkbox" id="optRegex"><span></span></label>
       <span>启用正则引擎</span>
       <label class="switch" style="margin-left:18px"><input type="checkbox" id="optNote"><span></span></label>
-      <span>注入标记协议说明（prompt_note）</span>
+      <span>注入隐私协议说明（prompt_note，含转储 xx/. 遮蔽说明）</span>
+      <label class="switch" style="margin-left:18px"><input type="checkbox" id="optHexdump"><span></span></label>
+      <span>十六进制转储防护（xxd/hexdump）</span>
     </div>
     <div class="row">
       <label class="f">散列算法
@@ -226,7 +230,15 @@ async function api(path, method="GET", body){
 function el(tag, attrs={}, text){ const n = document.createElement(tag);
   for (const k in attrs) n[k] = attrs[k]; if (text !== undefined) n.textContent = text; return n; }
 
-function markDirty(key, tab){ dirty[key] = true; const d = $(tab); if (d) d.textContent = dirty[key] ? " ●" : ""; }
+function markDirty(key, tab){ dirty[key] = true; renderDirty(); }
+function renderDirty(){
+  $("dRules").innerHTML = dirty.rules ? ' <span class="dirtyMark">●</span>' : "";
+  $("dCustom").innerHTML = dirty["custom-values"] ? ' <span class="dirtyMark">●</span>' : "";
+  const cfg = dirty.config ? ' <span class="dirtyMark">●</span>' : "";
+  $("dDetectors").innerHTML = cfg;
+  $("dOptions").innerHTML = cfg;
+  $("dirtyBanner").style.display = Object.values(dirty).some(Boolean) ? "" : "none";
+}
 
 // ---- tabs ---------------------------------------------------------------
 document.querySelectorAll("#tabs button").forEach(b=>{
@@ -249,7 +261,7 @@ async function loadState(){
     state.mappings = s.mappings || [];
     state.mappings_count = s.mappings_count || 0;
     dirty.rules = dirty["custom-values"] = dirty.config = false;
-    ["dRules","dCustom"].forEach(id=>$(id).textContent="");
+    renderDirty();
     renderStats(); renderRules(); renderCustom(); renderDetectors(); renderOptions(); renderMappings();
   }catch(e){ toast("加载失败：" + e.message, false); }
 }
@@ -329,7 +341,7 @@ $("btnAddRule").onclick = ()=>{
 $("btnSaveRules").onclick = async ()=>{
   try{
     await api("/api/save","POST",{file:"rules.json", doc:state.rules});
-    dirty.rules = false; $("dRules").textContent = "";
+    dirty.rules = false; renderDirty();
     toast("正则规则已保存（热重载生效）");
   }catch(e){ toast("保存失败：" + e.message, false); }
 };
@@ -373,7 +385,7 @@ $("btnAddCustom").onclick = ()=>{
 $("btnSaveCustom").onclick = async ()=>{
   try{
     await api("/api/save","POST",{file:"custom-values.json", doc:state.custom_values});
-    dirty["custom-values"] = false; $("dCustom").textContent = "";
+    dirty["custom-values"] = false; renderDirty();
     toast("特殊值已保存（登记的值已注册映射，热重载生效）");
   }catch(e){ toast("保存失败：" + e.message, false); }
 };
@@ -438,7 +450,7 @@ $("btnAddDetector").onclick = ()=>{
 $("btnSaveDetectors").onclick = async ()=>{
   try{
     await api("/api/save","POST",{file:"config.json", doc:state.config});
-    dirty.config = false; toast("检测模型已保存（热重载生效）");
+    dirty.config = false; renderDirty(); toast("检测模型已保存（热重载生效）");
   }catch(e){ toast("保存失败：" + e.message, false); }
 };
 
@@ -446,6 +458,7 @@ $("btnSaveDetectors").onclick = async ()=>{
 function renderOptions(){
   $("optRegex").checked = state.config.enable_regex !== false;
   $("optNote").checked = state.config.prompt_note !== false;
+  $("optHexdump").checked = state.config.enable_hexdump_guard !== false;
   const h = state.config.hash || {};
   $("hashAlgo").value = h.algorithm || "blake2b";
   $("hashMode").value = h.mode || "adaptive";
@@ -455,12 +468,13 @@ function renderOptions(){
 $("btnSaveOptions").onclick = async ()=>{
   state.config.enable_regex = $("optRegex").checked;
   state.config.prompt_note = $("optNote").checked;
+  state.config.enable_hexdump_guard = $("optHexdump").checked;
   state.config.hash = { algorithm: $("hashAlgo").value, mode: $("hashMode").value,
                         length: Number($("hashLen").value) || 16 };
   state.config.cache_capacity = Number($("cacheCap").value) || 4096;
   try{
     await api("/api/save","POST",{file:"config.json", doc:state.config});
-    dirty.config = false; toast("选项已保存（热重载生效）");
+    dirty.config = false; renderDirty(); toast("选项已保存（热重载生效）");
   }catch(e){ toast("保存失败：" + e.message, false); }
 };
 

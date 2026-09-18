@@ -11,6 +11,21 @@
 
 全程对用户透明、对模型不可还原真实值但可正常读写。
 
+## 文档目录
+
+- [为什么需要这样一个插件](#为什么需要这样一个插件)
+- [目录结构](#目录结构)
+- [环境要求](#环境要求)
+- [作为 cc-switch 插件](#作为-cc-switch-插件)
+- [替换与还原语义](#替换与还原语义)
+- [配置详解](#配置详解)
+- [可视化配置 GUI](#可视化配置-gui)
+- [检测模型服务(独立进程)](#检测模型服务独立进程)
+- [OPF 检测模型服务(真实模型,可选)](#opf-检测模型服务真实模型可选)
+- [安全边界](#安全边界)
+- [用其他语言重新实现](#用其他语言重新实现)
+- [许可证](#许可证)
+
 ## 为什么需要这样一个插件
 
 作为Agent重度使用者，当我看到[Countering misuse of AI: September 2026 / Anthropic \ Anthropic](https://www.anthropic.com/threat-intelligence-report-september-2026)我居然释然了：这一天早就该发生了。
@@ -60,7 +75,6 @@ privacy-replace/
 │   ├── rules.json          # ★ 正则/字面量规则
 │   ├── custom-values.json  # ★ 自定义特殊值(预先登记,登记即注册映射)
 │   └── config.json         # ★ 引擎选项(开关/散列/映射路径/检测模型)
-├── configure.py         # 中文菜单配置器(python configure.py)
 ├── configure_server.py  # 可视化配置 Web 服务(仅 127.0.0.1,启动自动开浏览器)
 ├── ui/index.html        # GUI 页面(单文件,零外部依赖)
 ├── detector_server.py   # 参考检测模型服务(演示规则,接真实模型的接入点)
@@ -196,6 +210,7 @@ pre_request 把命中来源合并处理,优先级规则统一:**priority 数字�
 | ------------------ | -------------------- | ------------------------------------------------------------ |
 | `enable_regex`     | `true`               | 正则/字面量规则总开关;关闭后仅自定义特殊值与检测模型参与     |
 | `enable_detectors` | `true`               | 检测模型总开关;关闭后不调用任何 detectors                    |
+| `enable_hexdump_guard` | `true`           | 十六进制转储防护:xxd/hexdump -C 的 hex 列是原文的另一编码(文本正则不可见),开启后引擎重建转储字节流复用规则检测,命中值在 hex 列(`xx`)与 ASCII 列(`.`)同时抹除;抹除不可还原、不产生标记映射 |
 | `prompt_note`      | `true`               | 是否注入「隐私标记协议」说明(见上)                           |
 | `hash.algorithm`   | `blake2b`            | 标记 id 散列:`blake2b` / `sha256` / `sha512` / `sha1`        |
 | `hash.mode`        | `adaptive`           | `adaptive`=id 长度随原文 min(max(12, 字节数), 64);`fixed`=固定 `hash.length`(防长度泄漏) |
@@ -230,14 +245,30 @@ pre_request 把命中来源合并处理,优先级规则统一:**priority 数字�
 | `priority`           | 缺省 20,数字越小越优先                                       |
 | `enabled`            | 单条开关                                                     |
 
-内置 `kv-secret` 规则演示 capture:gitleaks 风格长正则中第 4 组是引号内的密钥值,
-`"capture": 4` 使替换只遮值、键名原样保留——
+内置规则演示 capture(值那组写成命名组 `(?P<v>…)` 后用 `"capture": "v"`,只遮值、
+键名/引号/分隔符原样保留,AI 始终知道这一项是什么):
 
 ```
 api_key = "abcd1234efgh5678"   →   api_key = "⟦PII|…|SECRET|kv密钥值⟧"
+AKIA1234567890ABCDEF           →   AKIA⟦PII|…|TOKEN|供应商密钥⟧   (前缀保留识别厂商)
 ```
 
-更推荐把值那组写成命名组 `(?P<v>…)` 后用 `"capture": "v"`。
+内置键值对与令牌规则一览(均容忍键值间空白/换行 ≤32 字符、`=`/`:`/`=>`/`:=`/`->`/`::`
+等分隔符、成对单双反引号,env/JSON/YAML/log 形态通吃):
+
+- `kv-secret`:Khan 清单键名(access_key/api_key/db_password/…约 120 个)× 值(8–128 字符);
+- `kv-generic`:裸通用键名 `password/secret/token/key/credential/…` × 值(6–128 字符);
+- `token-prefix`:供应商前缀保留(AKIA/LTAI/AKID/AIza/xox-/ghp_/sk_live_ 等),仅遮主体;
+- `bearer-token`:`Bearer <token>` 保留字样只遮令牌;
+- `pem-private-key`:`-----BEGIN … PRIVATE KEY-----` 头保留,base64 主体整段遮蔽。
+
+参考出处(键名清单与形态来源,均按本插件语义改写——原文报告/遮蔽整个键值对,且要求
+键值同行紧邻、成对引号):
+
+- Khan安全团队《使用一个正则表达式搜索所有泄露的密钥》(微信公众号, 2022)——kv 键名清单;
+- [bacde.me《一些提取api key的正则表达式》](https://bacde.me/post/Extract-API-Keys-From-Regex/)——供应商前缀形态(AIza/AKIA/xox-/sk_live_ 等);
+- 神农Sec《云接管ak/sk工具-行云管家&oss-browser》([微信公众号](https://mp.weixin.qq.com/s/pDhHNy-YbgKU2LlQJMfSkQ))——阿里云 LTAI / 腾讯云 AKID;
+- [带娃的IT创业者《密钥脱敏:你的 API Key 可能藏在摘要里》(CSDN, 2026)](https://blog.csdn.net/yweng18/article/details/162779474)——输出端脱敏动机(日志/摘要/中转泄漏面)与 sk-/Bearer 形态。
 
 ### custom-values.json(自定义特殊值)
 
@@ -291,9 +322,9 @@ OPF(openai/privacy-filter)本地模型有现成服务 `opf_detector_server.py`,�
 - 明文存储原文——**拿到这个文件就能还原所有标记**,请像保管密码一样保管插件目录;
 - 文件损坏时以空映射启动(fail-open),**不会覆盖**原文件,可手动修复后重载插件进程。
 
-## 启动配置工具
+## 可视化配置 GUI
 
-### 可视化 GUI(推荐)
+配置手段只有两种:**本 GUI** 或**直接编辑 `json/` 下的三个 JSON**(保存即热重载生效)。
 
 ```
 cd 本插件目录
@@ -306,7 +337,8 @@ python configure_server.py
 - **实时预览**:输入文本干跑一次真实替换(临时副本,**绝不写真实映射表**);
 - **正则规则**:表格化启停/编辑/新增/删除,正则服务端校验,支持 capture;
 - **特殊值** / **检测模型**(一键真实调用测试连通性)/ **散列与选项**;
-- **映射表**:只读查看(最近 2000 条,默认隐藏原文,可勾选显示、可搜索)。
+- **映射表**:只读查看(最近 2000 条,默认隐藏原文,可勾选显示、可搜索);
+- **未保存提示**:有改动未保存时,对应页签出现红点、页首出现红色横幅,保存后消失。
 
 HTTP 接口(供脚本化):`GET /api/health`、`GET /api/state`、`POST /api/save`
 (三配置文件,服务端校验,坏正则 400)、`POST /api/validate-regex`、`POST /api/preview`、
@@ -318,19 +350,20 @@ HTTP 接口(供脚本化):`GET /api/health`、`GET /api/state`、`POST /api/save
 
 ![image-20260915234916558](./image/image-20260915234916558.png)
 
+### 检测模型服务(独立进程)
 
+插件与检测模型之间只隔一个 HTTP 批量协议(POST `{"texts":[…]}` → `{"spans":[[…]]}`),
+模型服务是**独立进程、任何语言都可实现**——`detector_server.py` 就是协议参考实现
+(内置演示正则,把 `char_spans()` 换成你的推理调用即接真实模型)。
 
-### 中文菜单 CLI
+因此"检测模型的配置"分两层,互不越界:
 
-```
-cd 本插件目录
-python configure.py
-```
-
-菜单:1) 正则规则  2) 自定义特殊值  3) 检测模型  4) 散列。修改即时保存、热重载生效;
-遇到损坏的 JSON 会自动备份为 `*.bak` 并按默认结构重建。
-
-### 参考检测服务
+- **引擎侧(GUI「检测模型」页全量可配)**:服务 URL、超时 `timeout_ms`、`max_chars`、
+  `priority`、label/enabled——即"插件作为 HTTP 客户端"的全部参数;换任何检测模型服务,
+  这层配置不变,GUI 的「测试」按钮随时验证连通性;
+- **模型服务侧(不属于本插件)**:加载哪个 checkpoint、device、解码方式等,是该服务
+  进程自己的启动参数(见下节 OPF 的 `--checkpoint`/`--device`)。换检测模型 = 换一个
+  实现了同一协议的服务进程,本仓库只随附两个参考实现,不捆绑任何模型。
 
 ```
 python detector_server.py            # 监听 http://127.0.0.1:8765/detect(--port 可改)
@@ -377,6 +410,10 @@ python opf_detector_server.py
 - `data/mappings.json` **明文存原文**:不要提交到仓库(本仓库 `.gitignore` 已排除 `data/`)、
   不要随日志/截图外发;
 - 标记本身不含原文,泄露标记文本不会直接泄露敏感内容;
+- **编码载体盲区**:工具输出若以非文本编码携带原文,文本正则不可见。xxd/hexdump -C 的
+  列视图由 `enable_hexdump_guard` 兜底(重建转储字节流、复用规则检测,命中值在 hex 列与
+  ASCII 列同时抹除,不走标记映射);base64/压缩/unicode 转义等其它编码形态仍是盲区;
+  仅检测模型能识别的实体(如无规则覆盖的人名)在转储内同样不在防护范围;
 - GUI 与参考检测服务只绑定 127.0.0.1;GUI 对映射表只读,真实映射只由运行中的插件进程写入。
 
 
